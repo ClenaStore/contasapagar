@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -49,12 +48,8 @@
       <div>
         <label>Empresa:</label>
         <select id="filtroEmpresa">
-          <option value="TODAS">TODAS</option>
-          <option value="MERCATTO DELÍCIA">MERCATTO DELÍCIA</option>
-          <option value="M.KIDS">M.KIDS</option>
-          <option value="VILLA GOURMET">VILLA GOURMET</option>
-          <option value="PADARIA DELÍCIA">PADARIA DELÍCIA</option>
-          <option value="DELÍCIA GOURMET">DELÍCIA GOURMET</option>
+          <option value="TODAS" selected>TODAS</option>
+          <!-- as opções serão injetadas dinamicamente -->
         </select>
       </div>
       <div>
@@ -110,27 +105,22 @@
   </div>
 
 <script>
+/* === Endpoints (cada um pode retornar múltiplas empresas; o nome virá do próprio registro) === */
 const urls = [
-  { url: 'https://script.google.com/macros/s/AKfycbydhKhv49t9MVo-wvaq-a7v1JrKuDytuQyioXsCGZ7SSSy7eUAltj01ZTPNYMohL-Fz/exec', empresa: 'MERCATTO DELÍCIA' },
-  { url: 'https://script.google.com/macros/s/AKfycbwum4REYSV2kjRRk4zSdpjpfrgEG7VXjm1qv1Covu8VLKP45pq56hsSBz6FPl46TQupdA/exec', empresa: 'M.KIDS' },
-  { url: '', empresa: 'VILLA GOURMET' },
-  { url: '', empresa: 'PADARIA DELÍCIA' },
-  { url: 'https://script.google.com/macros/s/AKfycbxWrof6NgQLV8P6UnSKJivNvuEE4NwYYy7DEg84r05Yk4fG5w1IRqdW7awoxRpVC5YrBA/exec', empresa: 'DELÍCIA GOURMET' }
+  { url: 'https://script.google.com/macros/s/AKfycbydhKhv49t9MVo-wvaq-a7v1JrKuDytuQyioXsCGZ7SSSy7eUAltj01ZTPNYMohL-Fz/exec' }, // ex. Mercatto
+  { url: 'https://script.google.com/macros/s/AKfycbwum4REYSV2kjRRk4zSdpjpfrgEG7VXjm1qv1Covu8VLKP45pq56hsSBz6FPl46TQupdA/exec' }, // ex. M.Kids
+  { url: '' }, // VILLA GOURMET (se tiver)
+  { url: '' }, // PADARIA DELÍCIA (se tiver)
+  { url: 'https://script.google.com/macros/s/AKfycbxWrof6NgQLV8P6UnSKJivNvuEE4NwYYy7DEg84r05Yk4fG5w1IRqdW7awoxRpVC5YrBA/exec' } // Delícia Gourmet
 ];
 
-const urlMap = {
-  'MERCATTO DELÍCIA': 'https://script.google.com/macros/s/AKfycbydhKhv49t9MVo-wvaq-a7v1JrKuDytuQyioXsCGZ7SSSy7eUAltj01ZTPNYMohL-Fz/exec',
-  'M.KIDS': '',
-  'VILLA GOURMET': '',
-  'PADARIA DELÍCIA': '',
-  'DELÍCIA GOURMET': 'https://script.google.com/macros/s/AKfycbxWrof6NgQLV8P6UnSKJivNvuEE4NwYYy7DEg84r05Yk4fG5w1IRqdW7awoxRpVC5YrBA/exec'
-};
-
 let todosDados = [];
+
 const overlay = document.getElementById('loading-overlay');
 const overlayMsg = document.getElementById('loading-message');
 const tbody = document.querySelector('#tabela tbody');
 const btnAplicar = document.getElementById('btnAplicar');
+const filtroEmpresa = document.getElementById('filtroEmpresa');
 
 const toMoney = v => (isNaN(Number(v)) ? 0 : Number(v)).toFixed(2);
 const normClass = s => String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
@@ -138,21 +128,52 @@ const normClass = s => String(s||'').toLowerCase().normalize('NFD').replace(/[\u
 function showOverlay(text='Carregando dados...'){ overlayMsg.textContent=text; overlay.style.display='flex'; btnAplicar.disabled=true; }
 function hideOverlay(){ overlay.style.display='none'; btnAplicar.disabled=false; }
 
+/* Popular as opções do filtro Empresa dinamicamente */
+function preencherEmpresasNoFiltro() {
+  const setEmpresas = new Set(
+    todosDados
+      .map(r => (r.empresa || r.Empresa || '').toString().trim())
+      .filter(Boolean)
+  );
+  // limpa opções antigas (mantém "TODAS")
+  [...filtroEmpresa.querySelectorAll('option:not([value="TODAS"])')].forEach(o => o.remove());
+  // insere novas
+  [...setEmpresas].sort().forEach(nome => {
+    const opt = document.createElement('option');
+    opt.value = nome;
+    opt.textContent = nome;
+    filtroEmpresa.appendChild(opt);
+  });
+}
+
 async function carregarTodosOsDados(){
-  showOverlay('Carregando dados de todas as empresas...');
+  showOverlay('Carregando dados de todas as origens...');
   tbody.innerHTML = '';
   todosDados = [];
-  for (const config of urls) {
-    if (!config.url) continue;
+
+  for (const cfg of urls) {
+    if (!cfg.url) continue;
     try {
-      const res = await fetch(`${config.url}?acao=ler`, { cache:'no-store' });
+      const res = await fetch(`${cfg.url}?acao=ler`, { cache:'no-store' });
       const dados = await res.json();
-      (dados||[]).forEach(item => item.empresa = config.empresa);
+
+      (dados||[]).forEach(item => {
+        // NÃO sobrescreve o nome da empresa: usa o que veio na planilha
+        // Guarda a origem para saber para onde enviar POST nas ações
+        item._src = cfg.url;
+        // Compat: nomes de campos variados
+        item.empresa = item.empresa || item.Empresa || item.EMRPESA || item.EmpresaNome || item.compania || '';
+        item.pix = item.pix || item.dadosPix || item.dadosPIX || '';
+        item.titular = item.titular || item.titularConta || item.titularPix || '';
+      });
+
       todosDados.push(...dados);
     } catch (e) {
-      console.warn('Erro ao carregar dados de', config.empresa, e);
+      console.warn('Erro ao carregar', cfg.url, e);
     }
   }
+
+  preencherEmpresasNoFiltro();
   hideOverlay();
   aplicarFiltros();
 }
@@ -160,6 +181,7 @@ async function carregarTodosOsDados(){
 function aplicarFiltros(){
   showOverlay('Aplicando filtros...');
   tbody.innerHTML = '';
+
   const emp = document.getElementById('filtroEmpresa').value;
   const stat = document.getElementById('filtroStatus').value;
   const prof = document.getElementById('filtroProfissional').value.trim().toLowerCase();
@@ -170,15 +192,17 @@ function aplicarFiltros(){
   const vMax = parseFloat(document.getElementById('filtroValorMax').value);
 
   const filtrados = todosDados.filter(item => {
-    const data = item.data ? String(item.data).split('T')[0] : '';
+    const dataISO = item.data ? String(item.data).split('T')[0] : '';
     const valor = Number(item.valorFinal) || 0;
+    const empresaNome = (item.empresa || '').toString();
+
     return (
-      (emp === 'TODAS' || item.empresa === emp) &&
+      (emp === 'TODAS' || empresaNome === emp) &&
       (stat === 'TODOS' || item.status === stat) &&
       (prof === '' || (item.profissional || '').toLowerCase().includes(prof)) &&
       (pix === '' || (item.pix || '').toLowerCase().includes(pix)) &&
-      (!dataIni || data >= dataIni) &&
-      (!dataFim || data <= dataFim) &&
+      (!dataIni || dataISO >= dataIni) &&
+      (!dataFim || dataISO <= dataFim) &&
       (isNaN(vMin) || valor >= vMin) &&
       (isNaN(vMax) || valor <= vMax)
     );
@@ -187,10 +211,14 @@ function aplicarFiltros(){
   filtrados.forEach(item => {
     const tr = document.createElement('tr');
     tr.className = normClass(item.status);
+
     const comentario = item.comentario || item.observacao || item.obs || '';
+    const dataPt = item.data ? String(item.data).split('T')[0] : '';
+    const dataPg = item.dataPagamento ? new Date(item.dataPagamento).toLocaleDateString('pt-BR') : '';
+
     tr.innerHTML = `
-      <td>${item.empresa}</td>
-      <td>${item.data ? String(item.data).split('T')[0] : ''}</td>
+      <td>${item.empresa || ''}</td>
+      <td>${dataPt}</td>
       <td>${item.profissional || ''}</td>
       <td>${item.funcao || ''}</td>
       <td>${item.pix || ''}</td>
@@ -200,17 +228,29 @@ function aplicarFiltros(){
       <td>R$ ${toMoney(item.bonificacao)}</td>
       <td>R$ ${toMoney(item.desconto)}</td>
       <td>R$ ${toMoney(item.valorFinal)}</td>
-      <td>${item.dataPagamento ? new Date(item.dataPagamento).toLocaleDateString('pt-BR') : ''}</td>
+      <td>${dataPg}</td>
       <td>${item.cpf || ''}</td>
       <td>
-        <select onchange="atualizarStatusIndividual(this, '${item.empresa}', ${item.index})" data-original="${item.status}">
+        <select
+          data-src="${item._src || ''}"
+          data-index="${item.index}"
+          data-original="${item.status}"
+          onchange="atualizarStatusIndividual(this)"
+        >
           <option value="PENDENTE" ${item.status === 'PENDENTE' ? 'selected' : ''}>PENDENTE</option>
-          <option value="LANÇADO" ${item.status === 'LANÇADO' ? 'selected' : ''}>LANÇADO</option>
-          <option value="PAGO" ${item.status === 'PAGO' ? 'selected' : ''}>PAGO</option>
+          <option value="LANÇADO"  ${item.status === 'LANÇADO'  ? 'selected' : ''}>LANÇADO</option>
+          <option value="PAGO"     ${item.status === 'PAGO'     ? 'selected' : ''}>PAGO</option>
         </select>
       </td>
       <td class="comentario">${comentario}</td>
-      <td><button type="button" onclick="comentar('${item.empresa}', ${item.index}, this)">Comentar</button></td>
+      <td>
+        <button
+          type="button"
+          data-src="${item._src || ''}"
+          data-index="${item.index}"
+          onclick="comentar(this)"
+        >Comentar</button>
+      </td>
     `;
     tbody.appendChild(tr);
   });
@@ -218,15 +258,19 @@ function aplicarFiltros(){
   setTimeout(hideOverlay, 150);
 }
 
-function atualizarStatusIndividual(select, empresa, index){
-  const novoStatus = select.value;
-  const valorAnterior = select.getAttribute('data-original');
+/* === Ações === */
+function atualizarStatusIndividual(selectEl){
+  const novoStatus = selectEl.value;
+  const valorAnterior = selectEl.getAttribute('data-original');
+  const url = selectEl.getAttribute('data-src') || '';
+  const index = selectEl.getAttribute('data-index');
+
+  if (!url) { alert('Origem do registro não encontrada.'); selectEl.value = valorAnterior; return; }
+
   if (novoStatus === 'PENDENTE' && valorAnterior !== 'PENDENTE') {
     const senha = prompt('Digite a senha para alterar para PENDENTE:');
-    if (senha !== '848663') { alert('Senha incorreta.'); select.value = valorAnterior; return; }
+    if (senha !== '848663') { alert('Senha incorreta.'); selectEl.value = valorAnterior; return; }
   }
-  const url = urlMap[empresa];
-  if (!url) { alert(`URL da empresa "${empresa}" não encontrada.`); select.value = valorAnterior; return; }
 
   showOverlay('Atualizando status...');
   const formData = new FormData();
@@ -236,14 +280,16 @@ function atualizarStatusIndividual(select, empresa, index){
 
   fetch(url, { method: 'POST', body: formData })
     .then(res => res.text())
-    .then(() => { select.setAttribute('data-original', novoStatus); alert(`Status atualizado para ${novoStatus}`); })
-    .catch(() => { alert('Erro ao atualizar status'); select.value = valorAnterior; })
+    .then(() => { selectEl.setAttribute('data-original', novoStatus); alert(`Status atualizado para ${novoStatus}`); })
+    .catch(() => { alert('Erro ao atualizar status'); selectEl.value = valorAnterior; })
     .finally(() => hideOverlay());
 }
 
-function comentar(empresa, index, btnEl){
-  const url = urlMap[empresa];
-  if (!url) { alert(`URL da empresa "${empresa}" não encontrada.`); return; }
+function comentar(btnEl){
+  const url = btnEl.getAttribute('data-src') || '';
+  const index = btnEl.getAttribute('data-index') || '';
+  if (!url) { alert('Origem do registro não encontrada.'); return; }
+
   const tr = btnEl.closest('tr');
   const tdComentario = tr.querySelector('.comentario');
   const atual = tdComentario ? tdComentario.textContent.trim() : '';
@@ -263,6 +309,7 @@ function comentar(empresa, index, btnEl){
     .finally(() => hideOverlay());
 }
 
+/* Eventos */
 document.getElementById('btnAplicar').addEventListener('click', aplicarFiltros);
 window.addEventListener('load', carregarTodosOsDados);
 document.getElementById('btnLiquidar').addEventListener('click', () => alert('Função de liquidação em massa ainda não implementada.'));
